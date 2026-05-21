@@ -3,9 +3,380 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>管理心得 - 個人部落格</title>
+<title>管理心得 - Jacky</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;700&family=Noto+Sans+TC:wght@300;400;500&display=swap" rel="stylesheet">
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, increment, orderBy, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  // ========== 請將下方換成您的 Firebase 設定 ==========
+  const firebaseConfig = {
+    apiKey: "AIzaSyC__r7n5dXWYBg1JD98t3mNHyT9Se78R0Y",
+    authDomain: "jackyblog-fca75.firebaseapp.com",
+    projectId: "jackyblog-fca75",
+    storageBucket: "jackyblog-fca75.firebasestorage.app",
+    messagingSenderId: "26758394138",
+    appId: "1:26758394138:web:86f015b1a68913a6f9fca3"
+  };
+  // ====================================================
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // ========== 設定區 ==========
+  const ADMIN_PASSWORD = '1J1a9c4k5y8@';
+  const AUTHOR_NAME = 'Jacky';
+  // ============================
+
+  let articles = [];
+  let currentCat = '全部';
+  let currentArticleId = null;
+  let isAdmin = false;
+  let pendingAdminAction = null;
+
+  // ===== Firebase 操作 =====
+  async function loadArticles() {
+    showLoading(true);
+    try {
+      const q = query(collection(db, 'articles'), orderBy('timestamp', 'desc'));
+      const snap = await getDocs(q);
+      articles = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch(e) {
+      console.error(e);
+      articles = [];
+    }
+    showLoading(false);
+    render();
+  }
+
+  async function addArticle(data) {
+    const ref = await addDoc(collection(db, 'articles'), {
+      ...data,
+      views: 0,
+      comments: [],
+      timestamp: serverTimestamp()
+    });
+    return ref.id;
+  }
+
+  async function updateArticle(id, data) {
+    await updateDoc(doc(db, 'articles', id), data);
+  }
+
+  async function deleteArticle(id) {
+    await deleteDoc(doc(db, 'articles', id));
+  }
+
+  async function incrementView(id) {
+    await updateDoc(doc(db, 'articles', id), { views: increment(1) });
+  }
+
+  // ===== Render =====
+  function showLoading(show) {
+    document.getElementById('loading').style.display = show ? 'flex' : 'none';
+  }
+
+  function render() {
+    const allCats = ['全部', ...new Set(articles.map(a => a.cat))];
+    document.getElementById('cat-tabs').innerHTML = allCats.map(c =>
+      `<button class="cat-tab${c === currentCat ? ' active' : ''}" onclick="window._setCat('${c}')">${c}</button>`
+    ).join('');
+
+    const catCounts = {};
+    articles.forEach(a => { catCounts[a.cat] = (catCounts[a.cat] || 0) + 1; });
+    const catHtml = Object.entries(catCounts).map(([c, n]) =>
+      `<li onclick="window._setCat('${c}')"><span>${c}</span><span class="count">${n}</span></li>`
+    ).join('');
+    ['sidebar-cats', 'sidebar-cats2'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = catHtml; });
+
+    const filtered = currentCat === '全部' ? articles : articles.filter(a => a.cat === currentCat);
+    document.getElementById('articles-list').innerHTML = filtered.length ? filtered.map(a => `
+      <div class="article-card" style="position:relative">
+        <div onclick="window._openArticle('${a.id}')">
+          ${a.cover ? `<img src="${a.cover}" alt="${a.title}" style="width:100%;max-height:200px;object-fit:contain;border-radius:2px;margin-bottom:14px;display:block;background:var(--paper2)">` : ''}
+          <div class="a-meta">
+            <span class="a-cat">${a.cat}</span>
+            <span class="a-date">📅 ${a.date}</span>
+            <span class="a-views">◎ ${a.views || 0} 次瀏覽</span>
+          </div>
+          <div class="a-title">${a.title}</div>
+          <div class="a-excerpt">${a.excerpt}</div>
+          <div class="a-read">閱讀全文 →</div>
+        </div>
+        ${isAdmin ? `<div style="position:absolute;top:20px;right:0;display:flex;gap:6px">
+          <button class="btn-edit" onclick="window._openEditModal(event,'${a.id}')">✎ 編輯</button>
+          <button class="btn-delete" onclick="window._deleteArticle(event,'${a.id}')">✕ 刪除</button>
+        </div>` : ''}
+      </div>
+    `).join('') : '<p style="color:var(--ink3);padding:24px 0;font-size:14px">此分類尚無文章</p>';
+
+    const recent = [...articles].slice(0, 4);
+    document.getElementById('recent-list').innerHTML = recent.map(a => `
+      <div class="recent-item" onclick="window._openArticle('${a.id}')">
+        <div class="rt">${a.title}</div>
+        <div class="rd">${a.date}</div>
+      </div>
+    `).join('');
+
+    const totalViews = articles.reduce((s, a) => s + (a.views || 0), 0);
+    const totalComments = articles.reduce((s, a) => s + (a.comments || []).length, 0);
+    document.getElementById('stat-articles').textContent = articles.length;
+    document.getElementById('stat-views').textContent = totalViews.toLocaleString();
+    document.getElementById('stat-comments').textContent = totalComments;
+  }
+
+  // ===== Navigation =====
+  window._setCat = function(cat) {
+    currentCat = cat;
+    showHome();
+  };
+
+  function showHome() {
+    document.getElementById('home-view').style.display = 'grid';
+    document.getElementById('detail-view').style.display = 'none';
+    currentArticleId = null;
+    render();
+  }
+
+  window._showHome = showHome;
+
+  window._filterCat = function(e, cat) {
+    e.preventDefault();
+    currentCat = cat;
+    showHome();
+  };
+
+  // ===== Article Detail =====
+  window._openArticle = async function(id) {
+    const a = articles.find(x => x.id === id);
+    if (!a) return;
+
+    // increment view
+    incrementView(id);
+    a.views = (a.views || 0) + 1;
+    currentArticleId = id;
+
+    const bodyHtml = (a.body || '').split('\n\n').map(p => {
+      if (p.startsWith('###')) return `<h3>${p.replace(/^###\s*/, '')}</h3>`;
+      const withImgs = p.replace(/\[圖片:(.*?)\]/g, (_, u) => `<img src="${u}" alt="圖片" style="width:100%;border-radius:4px;margin:12px 0;display:block">`);
+      return `<p>${withImgs}</p>`;
+    }).join('');
+
+    const comments = a.comments || [];
+    const commentsHtml = comments.map((c, i) => `
+      <div class="comment-item">
+        <div class="c-author">${escHtml(c.author)}</div>
+        <div class="c-date">${c.date}</div>
+        <div class="c-text">${escHtml(c.text)}</div>
+        ${isAdmin && !c.reply ? `<span class="admin-toggle" onclick="toggleReplyForm(${i})">✎ 回覆此留言</span>
+          <div class="reply-form" id="rf-${i}">
+            <textarea placeholder="輸入回覆內容..." id="rt-${i}"></textarea>
+            <button class="btn-reply-submit" onclick="window._submitReply('${id}',${i})">送出回覆</button>
+          </div>` : ''}
+      </div>
+      ${c.reply ? `<div class="comment-item reply">
+        <div class="c-author">✍ 作者回覆</div>
+        <div class="c-date">${c.replyDate || c.date}</div>
+        <div class="c-text">${escHtml(c.reply)}</div>
+      </div>` : ''}
+    `).join('');
+
+    document.getElementById('article-content').innerHTML = `
+      <div class="ad-cat">${a.cat}</div>
+      <div class="ad-title">${a.title}</div>
+      <div class="ad-meta-bar">
+        <span>📅 ${a.date}</span>
+        <span class="sep">|</span>
+        <span>◎ 瀏覽 ${a.views} 次</span>
+        <span class="sep">|</span>
+        <span>💬 ${comments.length} 則留言</span>
+        ${isAdmin ? `<span class="sep">|</span><button class="btn-edit" style="font-size:12px;padding:3px 10px" onclick="window._openEditModal(null,'${id}')">✎ 編輯此文章</button>` : ''}
+      </div>
+      <div class="ad-body">${bodyHtml}</div>
+      <div class="comments-section">
+        <h3>留言與討論（${comments.length} 則）</h3>
+        <div id="comments-container">
+          ${commentsHtml || '<p style="color:var(--ink3);font-size:14px;margin-bottom:24px">尚無留言，歡迎留下您的想法。</p>'}
+        </div>
+        <div class="comment-form">
+          <h4>提問 / 留言</h4>
+          <div class="form-group"><label>您的稱呼</label><input type="text" id="c-name" placeholder="請輸入您的名稱"></div>
+          <div class="form-group"><label>留言內容</label><textarea id="c-text" placeholder="歡迎提問或分享您的想法，作者將有空時回覆。"></textarea></div>
+          <button class="btn-submit" onclick="window._submitComment('${id}')">送出留言</button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('home-view').style.display = 'none';
+    document.getElementById('detail-view').style.display = 'grid';
+    window.scrollTo(0, 0);
+  };
+
+  function escHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  window.toggleReplyForm = function(i) {
+    const rf = document.getElementById('rf-' + i);
+    if (rf) rf.style.display = rf.style.display === 'block' ? 'none' : 'block';
+  };
+
+  // ===== Comments =====
+  window._submitComment = async function(id) {
+    const name = document.getElementById('c-name').value.trim();
+    const text = document.getElementById('c-text').value.trim();
+    if (!name || !text) { showToast('請填寫名稱與留言內容'); return; }
+    const a = articles.find(x => x.id === id);
+    if (!a) return;
+    const newComment = { author: name, date: today(), text, reply: '', replyDate: '' };
+    const comments = [...(a.comments || []), newComment];
+    await updateArticle(id, { comments });
+    a.comments = comments;
+    showToast('留言已送出，感謝您的參與！');
+    window._openArticle(id);
+  };
+
+  window._submitReply = async function(id, idx) {
+    const ta = document.getElementById('rt-' + idx);
+    if (!ta || !ta.value.trim()) { showToast('請輸入回覆內容'); return; }
+    const a = articles.find(x => x.id === id);
+    if (!a) return;
+    const comments = [...(a.comments || [])];
+    comments[idx] = { ...comments[idx], reply: ta.value.trim(), replyDate: today() };
+    await updateArticle(id, { comments });
+    a.comments = comments;
+    showToast('回覆已送出！');
+    window._openArticle(id);
+  };
+
+  // ===== Admin =====
+  window._checkAdmin = function() {
+    if (isAdmin) { openModal(); return; }
+    pendingAdminAction = 'publish';
+    document.getElementById('login-modal').classList.add('show');
+    setTimeout(() => document.getElementById('admin-pwd').focus(), 100);
+  };
+
+  window._doLogin = function() {
+    const pwd = document.getElementById('admin-pwd').value;
+    if (pwd === ADMIN_PASSWORD) {
+      isAdmin = true;
+      document.getElementById('login-modal').classList.remove('show');
+      document.getElementById('admin-pwd').value = '';
+      document.getElementById('admin-bar').classList.add('show');
+      showToast('歡迎回來，Jacky！');
+      if (pendingAdminAction === 'publish') openModal();
+      if (currentArticleId) window._openArticle(currentArticleId);
+      else render();
+    } else {
+      showToast('密碼錯誤，請再試一次');
+      document.getElementById('admin-pwd').value = '';
+    }
+  };
+
+  window._logout = function() {
+    isAdmin = false;
+    document.getElementById('admin-bar').classList.remove('show');
+    showToast('已登出管理員模式');
+    if (currentArticleId) window._openArticle(currentArticleId);
+    else render();
+  };
+
+  window._closeLogin = function() {
+    document.getElementById('login-modal').classList.remove('show');
+    document.getElementById('admin-pwd').value = '';
+  };
+
+  function openModal() { document.getElementById('modal').classList.add('show'); }
+  window._closeModal = function() { document.getElementById('modal').classList.remove('show'); };
+
+  window._publishArticle = async function() {
+    const title = document.getElementById('new-title').value.trim();
+    const cat = document.getElementById('new-cat').value;
+    const excerpt = document.getElementById('new-excerpt').value.trim();
+    const body = document.getElementById('new-body').value.trim();
+    const cover = document.getElementById('new-cover').value.trim();
+    const date = document.getElementById('new-date').value || today();
+    if (!title || !body) { showToast('請填寫標題與內容'); return; }
+    showToast('發佈中...');
+    const id = await addArticle({ title, cat, excerpt: excerpt || title, body, cover, date });
+    articles.unshift({ id, title, cat, excerpt: excerpt || title, body, cover, date, views: 0, comments: [] });
+    window._closeModal();
+    showToast('文章已發佈成功！');
+    ['new-title','new-excerpt','new-body','new-cover'].forEach(id => document.getElementById(id).value = '');
+    render();
+  };
+
+  // ===== Edit =====
+  window._openEditModal = function(e, id) {
+    if (e) e.stopPropagation();
+    const a = articles.find(x => x.id === id);
+    if (!a) return;
+    document.getElementById('edit-title').value = a.title;
+    document.getElementById('edit-cat').value = a.cat;
+    document.getElementById('edit-excerpt').value = a.excerpt || '';
+    document.getElementById('edit-date').value = a.date || today();
+    document.getElementById('edit-body').value = a.body;
+    document.getElementById('edit-cover').value = a.cover || '';
+    document.getElementById('edit-modal').dataset.editId = id;
+    document.getElementById('edit-modal').classList.add('show');
+  };
+
+  window._closeEditModal = function() { document.getElementById('edit-modal').classList.remove('show'); };
+
+  window._saveEdit = async function() {
+    const id = document.getElementById('edit-modal').dataset.editId;
+    const a = articles.find(x => x.id === id);
+    if (!a) return;
+    const title = document.getElementById('edit-title').value.trim();
+    const body = document.getElementById('edit-body').value.trim();
+    if (!title || !body) { showToast('請填寫標題與內容'); return; }
+    const data = {
+      title,
+      cat: document.getElementById('edit-cat').value,
+      excerpt: document.getElementById('edit-excerpt').value.trim() || title,
+      date: document.getElementById('edit-date').value || today(),
+      body,
+      cover: document.getElementById('edit-cover').value.trim()
+    };
+    showToast('儲存中...');
+    await updateArticle(id, data);
+    Object.assign(a, data);
+    window._closeEditModal();
+    showToast('文章已更新！');
+    if (currentArticleId === id) window._openArticle(id);
+    else render();
+  };
+
+  // ===== Delete =====
+  window._deleteArticle = async function(e, id) {
+    e.stopPropagation();
+    if (!confirm('確定要刪除這篇文章？此動作無法復原。')) return;
+    await deleteArticle(id);
+    articles = articles.filter(a => a.id !== id);
+    showToast('文章已刪除');
+    render();
+  };
+
+  // ===== Utils =====
+  function today() {
+    const d = new Date();
+    const tw = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+    return tw.toISOString().slice(0, 10);
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2800);
+  }
+
+  // ===== Init =====
+  loadArticles();
+</script>
+
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -16,6 +387,12 @@
 }
 body{font-family:'Noto Sans TC',sans-serif;background:var(--paper);color:var(--ink);min-height:100vh}
 
+/* Loading */
+#loading{position:fixed;inset:0;background:rgba(250,248,244,0.9);z-index:500;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px}
+.spinner{width:36px;height:36px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loading p{font-size:13px;color:var(--ink3);letter-spacing:1px}
+
 nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify-content:space-between;height:64px;position:sticky;top:0;z-index:100}
 .nav-brand{font-family:'Noto Serif TC',serif;font-size:20px;color:#fff;font-weight:700;letter-spacing:2px}
 .nav-brand span{color:var(--gold)}
@@ -25,10 +402,6 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
 .nav-right{display:flex;gap:8px;align-items:center}
 .btn-admin{background:transparent;border:1px solid rgba(255,255,255,0.3);color:rgba(255,255,255,0.7);padding:6px 14px;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit;transition:all .2s;letter-spacing:.5px}
 .btn-admin:hover{border-color:var(--gold);color:var(--gold)}
-.btn-delete{background:transparent;border:1px solid #e88;color:#c55;padding:5px 12px;font-size:11px;cursor:pointer;border-radius:2px;font-family:inherit;transition:all .2s;letter-spacing:.5px}
-.btn-delete:hover{background:#c55;color:#fff;border-color:#c55}
-.btn-edit{background:transparent;border:1px solid var(--accent2);color:var(--accent);padding:5px 12px;font-size:11px;cursor:pointer;border-radius:2px;font-family:inherit;transition:all .2s;letter-spacing:.5px}
-.btn-edit:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
 
 .hero{background:var(--ink);padding:64px 2rem 56px;text-align:center;position:relative;overflow:hidden}
 .hero::before{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:repeating-linear-gradient(90deg,rgba(255,255,255,0.02) 0px,rgba(255,255,255,0.02) 1px,transparent 1px,transparent 60px),repeating-linear-gradient(0deg,rgba(255,255,255,0.02) 0px,rgba(255,255,255,0.02) 1px,transparent 1px,transparent 60px)}
@@ -67,13 +440,11 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
 .cat-list li span:first-child{font-size:14px;color:var(--ink2);transition:color .2s}
 .cat-list li:hover span:first-child{color:var(--accent)}
 .cat-list li .count{font-size:11px;color:var(--ink3);background:var(--paper3);padding:2px 7px;border-radius:10px}
-
 .recent-item{padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
 .recent-item:last-child{border-bottom:none}
 .recent-item .rt{font-size:13px;color:var(--ink2);line-height:1.5;margin-bottom:4px;transition:color .2s}
 .recent-item:hover .rt{color:var(--accent)}
 .recent-item .rd{font-size:11px;color:var(--ink3)}
-
 .about-box{text-align:center}
 .about-avatar{width:60px;height:60px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-family:'Noto Serif TC',serif;font-size:20px;color:var(--gold)}
 .about-name{font-family:'Noto Serif TC',serif;font-size:16px;font-weight:600;color:var(--ink);margin-bottom:6px}
@@ -97,11 +468,15 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
 .c-author{font-weight:500;font-size:14px;color:var(--ink);margin-bottom:4px}
 .c-date{font-size:11px;color:var(--ink3);margin-bottom:10px}
 .c-text{font-size:14px;color:var(--ink2);line-height:1.8}
+.reply-form{margin-top:12px;padding:12px;background:var(--paper);border:1px dashed var(--accent2);border-radius:2px;display:none}
+.reply-form textarea{width:100%;padding:8px 10px;border:1px solid var(--line);background:var(--paper2);color:var(--ink);font-family:inherit;font-size:13px;border-radius:2px;outline:none;min-height:70px;resize:vertical;line-height:1.7}
+.btn-reply-submit{background:var(--accent);color:#fff;border:none;padding:7px 16px;font-family:inherit;font-size:12px;cursor:pointer;border-radius:2px;margin-top:8px}
+.admin-toggle{font-size:11px;color:var(--ink3);cursor:pointer;text-decoration:underline;margin-top:6px;display:inline-block}
 .comment-form{margin-top:24px;padding:20px;background:var(--paper2);border:1px solid var(--line);border-radius:2px}
 .comment-form h4{font-family:'Noto Serif TC',serif;font-size:15px;color:var(--ink);margin-bottom:14px}
 .form-group{margin-bottom:14px}
 .form-group label{display:block;font-size:12px;color:var(--ink3);letter-spacing:1px;margin-bottom:6px;text-transform:uppercase}
-.form-group input,.form-group textarea{width:100%;padding:10px 12px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-family:inherit;font-size:14px;border-radius:2px;outline:none;transition:border-color .2s}
+.form-group input,.form-group textarea,.form-group select{width:100%;padding:10px 12px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-family:inherit;font-size:14px;border-radius:2px;outline:none;transition:border-color .2s}
 .form-group input:focus,.form-group textarea:focus{border-color:var(--accent2)}
 .form-group textarea{min-height:100px;resize:vertical;line-height:1.7}
 .btn-submit{background:var(--ink);color:#fff;border:none;padding:10px 24px;font-family:inherit;font-size:13px;cursor:pointer;letter-spacing:1px;border-radius:2px;transition:background .2s}
@@ -113,24 +488,19 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
 .modal h2{font-family:'Noto Serif TC',serif;font-size:22px;color:var(--ink);margin-bottom:24px}
 .modal-close{position:absolute;top:12px;right:16px;background:none;border:none;font-size:22px;color:var(--ink3);cursor:pointer;line-height:1}
 .btn-row{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
-.btn-cancel{background:transparent;border:1px solid var(--line);color:var(--ink2);padding:9px 20px;font-family:inherit;font-size:13px;cursor:pointer;border-radius:2px;transition:all .2s}
-.btn-cancel:hover{border-color:var(--ink2)}
-.form-group select{width:100%;padding:10px 12px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-family:inherit;font-size:14px;border-radius:2px;outline:none}
+.btn-cancel{background:transparent;border:1px solid var(--line);color:var(--ink2);padding:9px 20px;font-family:inherit;font-size:13px;cursor:pointer;border-radius:2px}
 
-/* Admin reply form */
-.reply-form{margin-top:12px;padding:12px;background:var(--paper);border:1px dashed var(--accent2);border-radius:2px;display:none}
-.reply-form textarea{width:100%;padding:8px 10px;border:1px solid var(--line);background:var(--paper2);color:var(--ink);font-family:inherit;font-size:13px;border-radius:2px;outline:none;min-height:70px;resize:vertical;line-height:1.7}
-.btn-reply-submit{background:var(--accent);color:#fff;border:none;padding:7px 16px;font-family:inherit;font-size:12px;cursor:pointer;border-radius:2px;margin-top:8px}
-.admin-toggle{font-size:11px;color:var(--ink3);cursor:pointer;text-decoration:underline;margin-top:6px;display:inline-block}
+.btn-delete{background:transparent;border:1px solid #e88;color:#c55;padding:5px 12px;font-size:11px;cursor:pointer;border-radius:2px;font-family:inherit;transition:all .2s;letter-spacing:.5px}
+.btn-delete:hover{background:#c55;color:#fff;border-color:#c55}
+.btn-edit{background:transparent;border:1px solid var(--accent2);color:var(--accent);padding:5px 12px;font-size:11px;cursor:pointer;border-radius:2px;font-family:inherit;transition:all .2s;letter-spacing:.5px}
+.btn-edit:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+.admin-bar{background:var(--accent3);border-bottom:1px solid var(--accent2);padding:8px 2rem;font-size:12px;color:var(--accent);display:none;align-items:center;gap:12px}
+.admin-bar.show{display:flex}
+.btn-logout{background:none;border:1px solid var(--accent2);color:var(--accent);padding:3px 10px;font-size:11px;cursor:pointer;border-radius:2px;font-family:inherit}
 
 .toast{position:fixed;bottom:24px;right:24px;background:var(--ink);color:#fff;padding:12px 20px;border-radius:4px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:999;max-width:280px}
 .toast.show{opacity:1}
-
-/* Admin panel */
-.admin-bar{background:var(--accent3);border-bottom:1px solid var(--accent2);padding:8px 2rem;font-size:12px;color:var(--accent);display:none;align-items:center;gap:12px}
-.admin-bar.show{display:flex}
-.admin-bar strong{font-weight:500}
-.btn-logout{background:none;border:1px solid var(--accent2);color:var(--accent);padding:3px 10px;font-size:11px;cursor:pointer;border-radius:2px;font-family:inherit}
 
 @media(max-width:768px){
   .main-layout{grid-template-columns:1fr}
@@ -141,25 +511,26 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
 </head>
 <body>
 
-<!-- Admin Bar -->
+<div id="loading"><div class="spinner"></div><p>載入中...</p></div>
+
 <div class="admin-bar" id="admin-bar">
   <strong>✎ 管理員模式</strong>
-  <span>您可以回覆留言、新增文章</span>
-  <button class="btn-logout" onclick="logout()">登出</button>
+  <span>您可以發表、編輯、回覆留言</span>
+  <button class="btn-logout" onclick="window._logout()">登出</button>
 </div>
 
 <nav>
   <div class="nav-brand">管理<span>心得</span></div>
   <ul class="nav-links">
-    <li><a href="#" id="nav-home" class="active" onclick="showHome(event)">首頁</a></li>
-    <li><a href="#" onclick="filterCat(event,'全部')">全部文章</a></li>
-    <li><a href="#" onclick="filterCat(event,'主管領導')">主管領導</a></li>
-    <li><a href="#" onclick="filterCat(event,'客戶服務')">客戶服務</a></li>
-    <li><a href="#" onclick="filterCat(event,'抱怨處理')">抱怨處理</a></li>
-    <li><a href="#" onclick="filterCat(event,'人才與組織')">人才與組織</a></li>
+    <li><a href="#" class="active" onclick="event.preventDefault();window._showHome()">首頁</a></li>
+    <li><a href="#" onclick="window._filterCat(event,'全部')">全部文章</a></li>
+    <li><a href="#" onclick="window._filterCat(event,'主管領導')">主管領導</a></li>
+    <li><a href="#" onclick="window._filterCat(event,'客戶服務')">客戶服務</a></li>
+    <li><a href="#" onclick="window._filterCat(event,'抱怨處理')">抱怨處理</a></li>
+    <li><a href="#" onclick="window._filterCat(event,'人才與組織')">人才與組織</a></li>
   </ul>
   <div class="nav-right">
-    <button class="btn-admin" onclick="checkAdmin()">✍ 發表文章</button>
+    <button class="btn-admin" onclick="window._checkAdmin()">✍ 發表文章</button>
   </div>
 </nav>
 
@@ -184,7 +555,7 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
     <div class="sidebar-box about-box">
       <div class="about-avatar">J</div>
       <div class="about-name">Jacky</div>
-      <div class="about-bio">郭宏偉，康士藤人才測評中心副總，專注於人才測評、主管培育、職能建構、員工調查、組織診斷、服務體驗與客怨處理訓練。<br><br>我協助企業將抽象的人才、管理與服務議題，轉化為可診斷、可溝通、可培育、可落地的具體方案。透過心理測評、行為分析、課程設計、顧問輔導與服務現場案例演練，協助組織更精準地理解人才、發展主管、改善服務，並建立更有效的人才與顧客經營依據。<br><br>我的核心工作，是讓企業不只看見人的表現，更能理解表現背後的特質、動機、風險、情緒與期待，進而設計出更有效的管理行為與服務行動。</div>
+      <div class="about-bio">郭宏偉，康士藤人才測評中心副總，專注於人才測評、主管培育、職能建構、員工調查、組織診斷、服務體驗與客怨處理訓練。<br><br>我協助企業將抽象的人才、管理與服務議題，轉化為可診斷、可溝通、可培育、可落地的具體方案。</div>
     </div>
     <div class="sidebar-box">
       <h3>文章分類</h3>
@@ -199,7 +570,7 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
 
 <div class="main-layout" id="detail-view" style="display:none">
   <div>
-    <button class="back-btn" onclick="showHome(null)">← 返回列表</button>
+    <button class="back-btn" onclick="window._showHome()">← 返回列表</button>
     <div id="article-content"></div>
   </div>
   <aside>
@@ -215,478 +586,76 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
   </aside>
 </div>
 
-<!-- Upload Modal -->
+<!-- Publish Modal -->
 <div class="modal-overlay" id="modal">
   <div class="modal">
-    <button class="modal-close" onclick="closeModal()">×</button>
+    <button class="modal-close" onclick="window._closeModal()">×</button>
     <h2>發表新文章</h2>
-    <div class="form-group">
-      <label>文章標題</label>
-      <input type="text" id="new-title" placeholder="請輸入文章標題">
-    </div>
-    <div class="form-group">
-      <label>文章分類</label>
+    <div class="form-group"><label>文章標題</label><input type="text" id="new-title" placeholder="請輸入文章標題"></div>
+    <div class="form-group"><label>文章分類</label>
       <select id="new-cat">
-        <option>主管領導</option>
-        <option>客戶服務</option>
-        <option>抱怨處理</option>
-        <option>人才與組織</option>
+        <option>主管領導</option><option>客戶服務</option><option>抱怨處理</option><option>人才與組織</option>
       </select>
     </div>
-    <div class="form-group">
-      <label>文章摘要（選填）</label>
-      <input type="text" id="new-excerpt" placeholder="一句話描述文章主旨">
+    <div class="form-group"><label>發表日期</label><input type="date" id="new-date"></div>
+    <div class="form-group"><label>文章摘要（選填）</label><input type="text" id="new-excerpt" placeholder="一句話描述文章主旨"></div>
+    <div class="form-group"><label>文章內容</label>
+      <textarea id="new-body" style="min-height:220px" placeholder="請輸入文章內容。&#10;小標題：### 標題&#10;插入圖片：[圖片:網址]"></textarea>
     </div>
-    <div class="form-group">
-      <label>文章內容</label>
-      <textarea id="new-body" style="min-height:220px" placeholder="請輸入文章內容。&#10;如需小標題，請在該行開頭加上 ### ，例如：&#10;### 這是小標題&#10;&#10;插入圖片請用：[圖片:網址] 例如：&#10;[圖片:https://您的帳號.github.io/images/photo.jpg]&#10;&#10;每段請以空行區隔。"></textarea>
-    </div>
-    <div class="form-group">
-      <label>封面圖片網址（選填）</label>
-      <input type="text" id="new-cover" placeholder="https://您的帳號.github.io/images/封面圖.jpg">
-      <p style="font-size:11px;color:var(--ink3);margin-top:5px">封面圖只顯示在文章列表；文章內圖片請在內容中用 [圖片:網址] 插入，可放在任意位置</p>
+    <div class="form-group"><label>封面圖片網址（選填）</label>
+      <input type="text" id="new-cover" placeholder="https://jackykuo69.github.io/image.jpg">
+      <p style="font-size:11px;color:var(--ink3);margin-top:5px">封面圖只顯示在列表；文章內圖片請用 [圖片:網址]</p>
     </div>
     <div class="btn-row">
-      <button class="btn-cancel" onclick="closeModal()">取消</button>
-      <button class="btn-submit" onclick="publishArticle()">發佈文章</button>
+      <button class="btn-cancel" onclick="window._closeModal()">取消</button>
+      <button class="btn-submit" onclick="window._publishArticle()">發佈文章</button>
     </div>
   </div>
 </div>
 
-<!-- Edit Article Modal -->
+<!-- Edit Modal -->
 <div class="modal-overlay" id="edit-modal">
   <div class="modal">
-    <button class="modal-close" onclick="closeEditModal()">×</button>
+    <button class="modal-close" onclick="window._closeEditModal()">×</button>
     <h2>編輯文章</h2>
-    <div class="form-group">
-      <label>文章標題</label>
-      <input type="text" id="edit-title" placeholder="請輸入文章標題">
-    </div>
-    <div class="form-group">
-      <label>文章分類</label>
+    <div class="form-group"><label>文章標題</label><input type="text" id="edit-title"></div>
+    <div class="form-group"><label>文章分類</label>
       <select id="edit-cat">
-        <option>主管領導</option>
-        <option>客戶服務</option>
-        <option>抱怨處理</option>
-        <option>人才與組織</option>
+        <option>主管領導</option><option>客戶服務</option><option>抱怨處理</option><option>人才與組織</option>
       </select>
     </div>
-    <div class="form-group">
-      <label>文章摘要</label>
-      <input type="text" id="edit-excerpt" placeholder="一句話描述文章主旨">
+    <div class="form-group"><label>發表日期</label><input type="date" id="edit-date"></div>
+    <div class="form-group"><label>文章摘要</label><input type="text" id="edit-excerpt"></div>
+    <div class="form-group"><label>文章內容</label>
+      <textarea id="edit-body" style="min-height:220px"></textarea>
     </div>
-    <div class="form-group">
-      <label>發表日期</label>
-      <input type="date" id="edit-date">
-    </div>
-    <div class="form-group">
-      <label>文章內容</label>
-      <textarea id="edit-body" style="min-height:220px" placeholder="請輸入文章內容。&#10;如需小標題：### 小標題&#10;插入圖片：[圖片:網址]"></textarea>
-    </div>
-    <div class="form-group">
-      <label>封面圖片網址（選填）</label>
+    <div class="form-group"><label>封面圖片網址（選填）</label>
       <input type="text" id="edit-cover" placeholder="https://jackykuo69.github.io/image.jpg">
-      <p style="font-size:11px;color:var(--ink3);margin-top:5px">封面圖只顯示在文章列表；文章內圖片請在內容中用 [圖片:網址] 插入，可放在任意位置</p>
+      <p style="font-size:11px;color:var(--ink3);margin-top:5px">封面圖只顯示在列表；文章內圖片請用 [圖片:網址]</p>
     </div>
     <div class="btn-row">
-      <button class="btn-cancel" onclick="closeEditModal()">取消</button>
-      <button class="btn-submit" onclick="saveEdit()">儲存變更</button>
+      <button class="btn-cancel" onclick="window._closeEditModal()">取消</button>
+      <button class="btn-submit" onclick="window._saveEdit()">儲存變更</button>
     </div>
   </div>
 </div>
 
-<!-- Admin Login Modal -->
+<!-- Login Modal -->
 <div class="modal-overlay" id="login-modal">
   <div class="modal" style="max-width:360px">
-    <button class="modal-close" onclick="closeLogin()">×</button>
+    <button class="modal-close" onclick="window._closeLogin()">×</button>
     <h2>管理員登入</h2>
-    <p style="font-size:13px;color:var(--ink3);margin-bottom:20px">請輸入管理員密碼以發表文章或回覆留言</p>
-    <div class="form-group">
-      <label>密碼</label>
-      <input type="password" id="admin-pwd" placeholder="請輸入密碼" onkeydown="if(event.key==='Enter')doLogin()">
+    <p style="font-size:13px;color:var(--ink3);margin-bottom:20px">請輸入管理員密碼</p>
+    <div class="form-group"><label>密碼</label>
+      <input type="password" id="admin-pwd" onkeydown="if(event.key==='Enter')window._doLogin()">
     </div>
     <div class="btn-row">
-      <button class="btn-cancel" onclick="closeLogin()">取消</button>
-      <button class="btn-submit" onclick="doLogin()">登入</button>
+      <button class="btn-cancel" onclick="window._closeLogin()">取消</button>
+      <button class="btn-submit" onclick="window._doLogin()">登入</button>
     </div>
-    <p style="font-size:11px;color:var(--ink3);margin-top:16px;text-align:center">預設密碼：admin123（請在程式碼中修改）</p>
   </div>
 </div>
 
 <div class="toast" id="toast"></div>
-
-<script>
-// ========== 設定區 ==========
-const ADMIN_PASSWORD = '1J1a9c4k5y8@'; // 請修改為您自己的密碼
-const SITE_NAME = '管理心得';
-const AUTHOR_NAME = 'Jacky';
-const AUTHOR_BIO = '郭宏偉，康士藤人才測評中心副總，專注於人才測評、主管培育、職能建構、員工調查、組織診斷、服務體驗與客怨處理訓練。';
-// ============================
-
-const STORAGE_KEY = 'mgmt_blog_v1';
-
-const defaultArticles = [
-  {
-    id:1,
-    title:'主管不是要管人，而是要讓人更好',
-    cat:'主管領導',
-    date:'2024-03-15',
-    excerpt:'許多人升上主管之後，第一個直覺反應就是「我要管好我的部屬」。但真正有效的領導，是讓每個人發揮潛能。',
-    body:`許多人升上主管之後，第一個直覺反應就是「我要管好我的部屬」。這個出發點看似合理，卻往往造成反效果。\n\n主管的核心任務不是「管理」，而是「賦能」。當你把時間花在監控每個細節，員工學到的是依賴；當你把時間花在引導與提問，員工學到的是思考。\n\n### 信任是管理的基礎\n\n我常說，一個主管最重要的工作，是在員工做出決定之前給他充分的資訊與框架，而不是在決定之後去糾正他。這需要高度的事前溝通能力，也需要主管真正了解每個人的工作方式與強項。\n\n### 建立安心犯錯的文化\n\n團隊中如果沒有人敢提出不同意見，那不是因為主管很高明，而是因為大家怕你。請定期問自己：「我上次聽到有人反對我的想法，是什麼時候？」`,
-    views:127,
-    comments:[
-      {id:'c1',author:'林小明',date:'2024-03-20',text:'這篇文章讓我反思了很多，尤其是「信任是基礎」這段，謝謝分享！',reply:'謝謝你的回應！信任確實需要長時間累積，但一旦建立，管理會輕鬆很多。',replyDate:'2024-03-21'}
-    ]
-  },
-  {
-    id:2,
-    title:'客戶說「不滿意」的時候，你第一句話說什麼？',
-    cat:'客戶服務',
-    date:'2024-02-28',
-    excerpt:'面對客訴的第一句話，決定了後續整個互動的走向。這一句話，很多人都說錯了。',
-    body:`面對客訴的第一句話，決定了後續整個互動的走向。\n\n很多服務人員的第一反應是解釋：「因為我們的系統……」、「依照我們的規定……」。但在客戶情緒高漲的當下，解釋等於辯解。\n\n### 先情緒，後事情\n\n正確的第一步是承認對方的感受：「您這樣感覺，完全可以理解。」注意，不是承認「我們做錯了」，而是承認「您有這樣的感受是合理的」。這一句話的力量遠超過任何解釋。\n\n### 同理不等於認錯\n\n很多主管擔心，如果說「我理解您的感受」，客戶會以為我們承認責任。其實不然。同理是情感層面的連結，責任認定是事實層面的判斷，兩者可以同時進行，互不衝突。`,
-    views:89,
-    comments:[
-      {id:'c2',author:'王大方',date:'2024-03-05',text:'實際操作上很難在情緒激動的當下冷靜應對，有什麼練習方法嗎？',reply:'好問題！建議先練習「暫停一秒」——聽到抱怨後，先深呼吸一下再開口。這一秒的暫停，能讓你從反應模式切換到回應模式。',replyDate:'2024-03-06'}
-    ]
-  },
-  {
-    id:3,
-    title:'抱怨是資訊，不是麻煩',
-    cat:'抱怨處理',
-    date:'2024-01-20',
-    excerpt:'每一個抱怨背後，都藏著一個還未被滿足的期待。學會「讀懂」抱怨，是優秀服務者的核心能力。',
-    body:`每一個抱怨背後，都藏著一個還未被滿足的期待。\n\n我們常常把客戶的抱怨視為「麻煩事」，希望趕快處理完就好。但這樣的心態，讓我們錯過了最寶貴的市場情報。\n\n### 抱怨的三個層次\n\n第一層是「事件」——客戶說發生了什麼事。第二層是「情緒」——客戶因此有什麼感受。第三層是「期待」——客戶真正希望怎樣。大多數服務人員只停留在第一層，但解決問題的關鍵在第三層。\n\n### 如何挖掘真實期待\n\n當客戶說「你們的效率太慢了」，不要急著道歉或解釋。試著問：「您希望在什麼時間點之前完成，對您才是方便的？」這個問題把焦點從過去移向未來，也讓客戶感覺被尊重。`,
-    views:203,
-    comments:[]
-  },
-  {
-    id:4,
-    title:'怎麼判斷一個人有沒有「管理潛力」？',
-    cat:'人才與組織',
-    date:'2024-01-05',
-    excerpt:'很多企業在選拔主管時，靠的是「業績排名」或「年資」。但這兩個指標，其實和管理潛力關係不大。',
-    body:`很多企業在選拔主管時，靠的是「業績排名」或「年資」。但這兩個指標，其實和管理潛力關係不大。\n\n業績好的人，擅長的是自己做事；主管要擅長的是讓別人做好事。這是完全不同的能力組合。\n\n### 觀察管理潛力的三個跡象\n\n第一，遇到問題時，他想到的是「我們」還是「我」。有潛力的人，天然地把問題視為共同挑戰。\n\n第二，他對他人的成長有真實的興趣。這種人在帶新人時會有一種自然的耐心，不是因為被要求，而是真的在乎對方學到了什麼。\n\n第三，他能坦然承受不確定性。主管面對的資訊永遠是不完整的，能在模糊中做出決策的人，才能駕馭管理的複雜度。`,
-    views:156,
-    comments:[
-      {id:'c3',author:'張美珠',date:'2024-01-12',text:'第三點特別有感，請問如何培養這個能力？',reply:'可以從「刻意練習小決策」開始——在日常生活中，減少蒐集資訊的時間，強迫自己在70%資訊的狀況下做決定，然後觀察結果。慢慢地，你的決策肌肉就會變強。',replyDate:'2024-01-13'}
-    ]
-  }
-];
-
-// ===== State =====
-let articles = [];
-let currentCat = '全部';
-let currentArticleId = null;
-let isAdmin = false;
-let pendingAdminAction = null; // 'publish' or 'reply'
-
-function loadData(){
-  try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw) articles = JSON.parse(raw);
-    else articles = JSON.parse(JSON.stringify(defaultArticles));
-  } catch(e){
-    articles = JSON.parse(JSON.stringify(defaultArticles));
-  }
-}
-
-function saveData(){
-  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(articles)); }catch(e){}
-}
-
-// ===== Render =====
-function render(){
-  const allCats = ['全部',...new Set(articles.map(a=>a.cat))];
-  document.getElementById('cat-tabs').innerHTML = allCats.map(c=>
-    `<button class="cat-tab${c===currentCat?' active':''}" onclick="setCat('${c}')">${c}</button>`
-  ).join('');
-
-  const catCounts = {};
-  articles.forEach(a=>{ catCounts[a.cat]=(catCounts[a.cat]||0)+1; });
-  const catHtml = Object.entries(catCounts).map(([c,n])=>
-    `<li onclick="setCat('${c}')"><span>${c}</span><span class="count">${n}</span></li>`
-  ).join('');
-  ['sidebar-cats','sidebar-cats2'].forEach(id=>{ const el=document.getElementById(id); if(el) el.innerHTML=catHtml; });
-
-  const filtered = currentCat==='全部' ? articles : articles.filter(a=>a.cat===currentCat);
-  document.getElementById('articles-list').innerHTML = filtered.length ? filtered.map(a=>`
-    <div class="article-card" style="position:relative">
-      <div onclick="openArticle(${a.id})">
-        ${a.cover ? `<img src="${a.cover}" alt="${a.title}" style="width:100%;max-height:200px;object-fit:contain;border-radius:2px;margin-bottom:14px;display:block;background:var(--paper2)">` : ''}
-        <div class="a-meta">
-          <span class="a-cat">${a.cat}</span>
-          <span class="a-date">📅 ${a.date}</span>
-          <span class="a-views">◎ ${a.views} 次瀏覽</span>
-        </div>
-        <div class="a-title">${a.title}</div>
-        <div class="a-excerpt">${a.excerpt}</div>
-        <div class="a-read">閱讀全文 →</div>
-      </div>
-      ${isAdmin ? `<div style="position:absolute;top:20px;right:0;display:flex;gap:6px">
-        <button class="btn-edit" onclick="openEditModal(event,${a.id})">✎ 編輯</button>
-        <button class="btn-delete" onclick="deleteArticle(event,${a.id})">✕ 刪除</button>
-      </div>` : ''}
-    </div>
-  `).join('') : '<p style="color:var(--ink3);padding:24px 0;font-size:14px">此分類尚無文章</p>';
-
-  const recent = [...articles].sort((a,b)=>b.id-a.id).slice(0,4);
-  document.getElementById('recent-list').innerHTML = recent.map(a=>`
-    <div class="recent-item" onclick="openArticle(${a.id})">
-      <div class="rt">${a.title}</div>
-      <div class="rd">${a.date}</div>
-    </div>
-  `).join('');
-
-  const totalViews = articles.reduce((s,a)=>s+a.views,0);
-  const totalComments = articles.reduce((s,a)=>s+a.comments.length,0);
-  document.getElementById('stat-articles').textContent = articles.length;
-  document.getElementById('stat-views').textContent = totalViews.toLocaleString();
-  document.getElementById('stat-comments').textContent = totalComments;
-}
-
-function setCat(cat){
-  currentCat=cat;
-  showHome(null);
-}
-
-function showHome(e){
-  if(e) e.preventDefault();
-  document.getElementById('home-view').style.display='grid';
-  document.getElementById('detail-view').style.display='none';
-  render();
-}
-
-function filterCat(e,cat){
-  e.preventDefault();
-  currentCat=cat;
-  showHome(null);
-}
-
-// ===== Article Detail =====
-function openArticle(id){
-  const a = articles.find(x=>x.id===id);
-  if(!a) return;
-  a.views++;
-  currentArticleId=id;
-  saveData();
-
-  const coverHtml = ''; // 封面圖只顯示於列表，文章內容中請用 [圖片:網址] 插入圖片
-  const bodyHtml = a.body.split('\n\n').map(p=>{
-    if(p.startsWith('###')) return `<h3>${p.replace(/^###\s*/,'')}</h3>`;
-    // Handle [圖片:url] inline image tags
-    if(p.startsWith('[圖片:')){
-      const url = p.match(/\[圖片:(.*?)\]/);
-      if(url) return `<img src="${url[1]}" alt="圖片" style="width:100%;border-radius:4px;margin:8px 0;display:block">`;
-    }
-    // Handle inline [圖片:url] within paragraphs
-    const withImgs = p.replace(/\[圖片:(.*?)\]/g, (_,u)=>`<img src="${u}" alt="圖片" style="width:100%;border-radius:4px;margin:12px 0;display:block">`);
-    return `<p>${withImgs}</p>`;
-  }).join('');
-
-  const commentsHtml = a.comments.map((c,i)=>`
-    <div class="comment-item" id="comment-${c.id||i}">
-      <div class="c-author">${escHtml(c.author)}</div>
-      <div class="c-date">${c.date}</div>
-      <div class="c-text">${escHtml(c.text)}</div>
-      ${isAdmin && !c.reply ? `<span class="admin-toggle" onclick="toggleReplyForm('${c.id||i}')">✎ 回覆此留言</span>
-        <div class="reply-form" id="rf-${c.id||i}">
-          <textarea placeholder="輸入回覆內容..." id="rt-${c.id||i}"></textarea>
-          <button class="btn-reply-submit" onclick="submitReply(${id},'${c.id||i}')">送出回覆</button>
-        </div>` : ''}
-    </div>
-    ${c.reply ? `<div class="comment-item reply">
-      <div class="c-author">✍ 作者回覆</div>
-      <div class="c-date">${c.replyDate||c.date}</div>
-      <div class="c-text">${escHtml(c.reply)}</div>
-    </div>` : ''}
-  `).join('');
-
-  document.getElementById('article-content').innerHTML = `
-    <div class="ad-cat">${a.cat}</div>
-    <div class="ad-title">${a.title}</div>
-    <div class="ad-meta-bar">
-      <span>📅 ${a.date}</span>
-      <span class="sep">|</span>
-      <span>◎ 瀏覽 ${a.views} 次</span>
-      <span class="sep">|</span>
-      <span>💬 ${a.comments.length} 則留言</span>
-      ${isAdmin ? `<span class="sep">|</span><button class="btn-edit" style="font-size:12px;padding:3px 10px" onclick="openEditModal(null,${a.id})">✎ 編輯此文章</button>` : ''}
-    </div>
-    <div class="ad-body">${coverHtml}${bodyHtml}</div>
-    <div class="comments-section">
-      <h3>留言與討論（${a.comments.length} 則）</h3>
-      <div id="comments-container">
-        ${commentsHtml || '<p style="color:var(--ink3);font-size:14px;margin-bottom:24px">尚無留言，歡迎留下您的想法。</p>'}
-      </div>
-      <div class="comment-form">
-        <h4>提問 / 留言</h4>
-        <div class="form-group"><label>您的稱呼</label><input type="text" id="c-name" placeholder="請輸入您的名稱"></div>
-        <div class="form-group"><label>留言內容</label><textarea id="c-text" placeholder="歡迎提問或分享您的想法，作者將有空時回覆。"></textarea></div>
-        <button class="btn-submit" onclick="submitComment(${id})">送出留言</button>
-      </div>
-    </div>
-  `;
-
-  document.getElementById('home-view').style.display='none';
-  document.getElementById('detail-view').style.display='grid';
-  window.scrollTo(0,0);
-}
-
-function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-// ===== Comments =====
-function submitComment(id){
-  const name = document.getElementById('c-name').value.trim();
-  const text = document.getElementById('c-text').value.trim();
-  if(!name||!text){ showToast('請填寫名稱與留言內容'); return; }
-  const a = articles.find(x=>x.id===id);
-  if(!a) return;
-  const cid = 'c'+ Date.now();
-  a.comments.push({id:cid, author:name, date:today(), text, reply:'', replyDate:''});
-  saveData();
-  showToast('留言已送出，感謝您的參與！');
-  openArticle(id);
-}
-
-function toggleReplyForm(cid){
-  const rf = document.getElementById('rf-'+cid);
-  if(rf) rf.style.display = rf.style.display==='block' ? 'none' : 'block';
-}
-
-function submitReply(articleId, cid){
-  const ta = document.getElementById('rt-'+cid);
-  if(!ta||!ta.value.trim()){ showToast('請輸入回覆內容'); return; }
-  const a = articles.find(x=>x.id===articleId);
-  if(!a) return;
-  const c = a.comments.find(x=>(x.id||'')===cid);
-  if(!c) return;
-  c.reply = ta.value.trim();
-  c.replyDate = today();
-  saveData();
-  showToast('回覆已送出！');
-  openArticle(articleId);
-}
-
-// ===== Admin =====
-function checkAdmin(){
-  if(isAdmin){ openModal(); return; }
-  pendingAdminAction = 'publish';
-  document.getElementById('login-modal').classList.add('show');
-  setTimeout(()=>document.getElementById('admin-pwd').focus(), 100);
-}
-
-function doLogin(){
-  const pwd = document.getElementById('admin-pwd').value;
-  if(pwd === ADMIN_PASSWORD){
-    isAdmin = true;
-    document.getElementById('login-modal').classList.remove('show');
-    document.getElementById('admin-pwd').value='';
-    document.getElementById('admin-bar').classList.add('show');
-    showToast('歡迎回來，管理員！');
-    if(pendingAdminAction==='publish') openModal();
-    if(currentArticleId) openArticle(currentArticleId);
-  } else {
-    showToast('密碼錯誤，請再試一次');
-    document.getElementById('admin-pwd').value='';
-  }
-}
-
-function logout(){
-  isAdmin=false;
-  document.getElementById('admin-bar').classList.remove('show');
-  showToast('已登出管理員模式');
-  if(currentArticleId) openArticle(currentArticleId);
-}
-
-function closeLogin(){ document.getElementById('login-modal').classList.remove('show'); document.getElementById('admin-pwd').value=''; }
-
-function openModal(){ document.getElementById('modal').classList.add('show'); }
-function closeModal(){ document.getElementById('modal').classList.remove('show'); }
-
-function publishArticle(){
-  const title = document.getElementById('new-title').value.trim();
-  const cat = document.getElementById('new-cat').value;
-  const excerpt = document.getElementById('new-excerpt').value.trim();
-  const body = document.getElementById('new-body').value.trim();
-  if(!title||!body){ showToast('請填寫標題與內容'); return; }
-  const cover = document.getElementById('new-cover').value.trim();
-  const newId = Math.max(0,...articles.map(a=>a.id))+1;
-  articles.unshift({id:newId, title, cat, date:today(), excerpt:excerpt||title, body, cover, views:0, comments:[]});
-  saveData();
-  closeModal();
-  showToast('文章已發佈成功！');
-  document.getElementById('new-title').value='';
-  document.getElementById('new-excerpt').value='';
-  document.getElementById('new-body').value='';
-  document.getElementById('new-cover').value='';
-  render();
-}
-
-function openEditModal(e, id){
-  if(e) e.stopPropagation();
-  const a = articles.find(x=>x.id===id);
-  if(!a) return;
-  document.getElementById('edit-title').value = a.title;
-  document.getElementById('edit-cat').value = a.cat;
-  document.getElementById('edit-excerpt').value = a.excerpt||'';
-  document.getElementById('edit-date').value = a.date||today();
-  document.getElementById('edit-body').value = a.body;
-  document.getElementById('edit-cover').value = a.cover||'';
-  document.getElementById('edit-modal').dataset.editId = id;
-  document.getElementById('edit-modal').classList.add('show');
-}
-
-function closeEditModal(){
-  document.getElementById('edit-modal').classList.remove('show');
-}
-
-function saveEdit(){
-  const id = parseInt(document.getElementById('edit-modal').dataset.editId);
-  const a = articles.find(x=>x.id===id);
-  if(!a) return;
-  const title = document.getElementById('edit-title').value.trim();
-  const body = document.getElementById('edit-body').value.trim();
-  if(!title||!body){ showToast('請填寫標題與內容'); return; }
-  a.title = title;
-  a.cat = document.getElementById('edit-cat').value;
-  a.excerpt = document.getElementById('edit-excerpt').value.trim() || title;
-  a.date = document.getElementById('edit-date').value || today();
-  a.body = body;
-  a.cover = document.getElementById('edit-cover').value.trim();
-  saveData();
-  closeEditModal();
-  showToast('文章已更新！');
-  if(currentArticleId===id) openArticle(id);
-  else render();
-}
-
-function deleteArticle(e, id){
-  e.stopPropagation();
-  if(!confirm('確定要刪除這篇文章？此動作無法復原。')) return;
-  articles = articles.filter(a=>a.id!==id);
-  saveData();
-  showToast('文章已刪除');
-  render();
-}
-
-// ===== Utils =====
-function today(){
-  const d = new Date();
-  const tw = new Date(d.getTime() + 8*60*60*1000);
-  return tw.toISOString().slice(0,10);
-}
-
-function showToast(msg){
-  const t = document.getElementById('toast');
-  t.textContent=msg;
-  t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'),2800);
-}
-
-// ===== Init =====
-loadData();
-render();
-</script>
 </body>
 </html>
