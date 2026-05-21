@@ -25,6 +25,10 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
 .nav-right{display:flex;gap:8px;align-items:center}
 .btn-admin{background:transparent;border:1px solid rgba(255,255,255,0.3);color:rgba(255,255,255,0.7);padding:6px 14px;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit;transition:all .2s;letter-spacing:.5px}
 .btn-admin:hover{border-color:var(--gold);color:var(--gold)}
+.btn-delete{background:transparent;border:1px solid #e88;color:#c55;padding:5px 12px;font-size:11px;cursor:pointer;border-radius:2px;font-family:inherit;transition:all .2s;letter-spacing:.5px}
+.btn-delete:hover{background:#c55;color:#fff;border-color:#c55}
+.btn-edit{background:transparent;border:1px solid var(--accent2);color:var(--accent);padding:5px 12px;font-size:11px;cursor:pointer;border-radius:2px;font-family:inherit;transition:all .2s;letter-spacing:.5px}
+.btn-edit:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
 
 .hero{background:var(--ink);padding:64px 2rem 56px;text-align:center;position:relative;overflow:hidden}
 .hero::before{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:repeating-linear-gradient(90deg,rgba(255,255,255,0.02) 0px,rgba(255,255,255,0.02) 1px,transparent 1px,transparent 60px),repeating-linear-gradient(0deg,rgba(255,255,255,0.02) 0px,rgba(255,255,255,0.02) 1px,transparent 1px,transparent 60px)}
@@ -235,11 +239,58 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
     </div>
     <div class="form-group">
       <label>文章內容</label>
-      <textarea id="new-body" style="min-height:220px" placeholder="請輸入文章內容。&#10;如需小標題，請在該行開頭加上 ### ，例如：&#10;### 這是小標題&#10;&#10;每段請以空行區隔。"></textarea>
+      <textarea id="new-body" style="min-height:220px" placeholder="請輸入文章內容。&#10;如需小標題，請在該行開頭加上 ### ，例如：&#10;### 這是小標題&#10;&#10;插入圖片請用：[圖片:網址] 例如：&#10;[圖片:https://您的帳號.github.io/images/photo.jpg]&#10;&#10;每段請以空行區隔。"></textarea>
+    </div>
+    <div class="form-group">
+      <label>封面圖片網址（選填）</label>
+      <input type="text" id="new-cover" placeholder="https://您的帳號.github.io/images/封面圖.jpg">
+      <p style="font-size:11px;color:var(--ink3);margin-top:5px">封面圖只顯示在文章列表；文章內圖片請在內容中用 [圖片:網址] 插入，可放在任意位置</p>
     </div>
     <div class="btn-row">
       <button class="btn-cancel" onclick="closeModal()">取消</button>
       <button class="btn-submit" onclick="publishArticle()">發佈文章</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Article Modal -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeEditModal()">×</button>
+    <h2>編輯文章</h2>
+    <div class="form-group">
+      <label>文章標題</label>
+      <input type="text" id="edit-title" placeholder="請輸入文章標題">
+    </div>
+    <div class="form-group">
+      <label>文章分類</label>
+      <select id="edit-cat">
+        <option>主管領導</option>
+        <option>客戶服務</option>
+        <option>抱怨處理</option>
+        <option>人才與組織</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>文章摘要</label>
+      <input type="text" id="edit-excerpt" placeholder="一句話描述文章主旨">
+    </div>
+    <div class="form-group">
+      <label>發表日期</label>
+      <input type="date" id="edit-date">
+    </div>
+    <div class="form-group">
+      <label>文章內容</label>
+      <textarea id="edit-body" style="min-height:220px" placeholder="請輸入文章內容。&#10;如需小標題：### 小標題&#10;插入圖片：[圖片:網址]"></textarea>
+    </div>
+    <div class="form-group">
+      <label>封面圖片網址（選填）</label>
+      <input type="text" id="edit-cover" placeholder="https://jackykuo69.github.io/image.jpg">
+      <p style="font-size:11px;color:var(--ink3);margin-top:5px">封面圖只顯示在文章列表；文章內圖片請在內容中用 [圖片:網址] 插入，可放在任意位置</p>
+    </div>
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="closeEditModal()">取消</button>
+      <button class="btn-submit" onclick="saveEdit()">儲存變更</button>
     </div>
   </div>
 </div>
@@ -266,7 +317,7 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
 
 <script>
 // ========== 設定區 ==========
-const ADMIN_PASSWORD = 'admin123'; // 請修改為您自己的密碼
+const ADMIN_PASSWORD = '1J1a9c4k5y8@'; // 請修改為您自己的密碼
 const SITE_NAME = '管理心得';
 const AUTHOR_NAME = 'Jacky';
 const AUTHOR_BIO = '郭宏偉，康士藤人才測評中心副總，專注於人才測評、主管培育、職能建構、員工調查、組織診斷、服務體驗與客怨處理訓練。';
@@ -360,15 +411,22 @@ function render(){
 
   const filtered = currentCat==='全部' ? articles : articles.filter(a=>a.cat===currentCat);
   document.getElementById('articles-list').innerHTML = filtered.length ? filtered.map(a=>`
-    <div class="article-card" onclick="openArticle(${a.id})">
-      <div class="a-meta">
-        <span class="a-cat">${a.cat}</span>
-        <span class="a-date">📅 ${a.date}</span>
-        <span class="a-views">◎ ${a.views} 次瀏覽</span>
+    <div class="article-card" style="position:relative">
+      <div onclick="openArticle(${a.id})">
+        ${a.cover ? `<img src="${a.cover}" alt="${a.title}" style="width:100%;max-height:200px;object-fit:contain;border-radius:2px;margin-bottom:14px;display:block;background:var(--paper2)">` : ''}
+        <div class="a-meta">
+          <span class="a-cat">${a.cat}</span>
+          <span class="a-date">📅 ${a.date}</span>
+          <span class="a-views">◎ ${a.views} 次瀏覽</span>
+        </div>
+        <div class="a-title">${a.title}</div>
+        <div class="a-excerpt">${a.excerpt}</div>
+        <div class="a-read">閱讀全文 →</div>
       </div>
-      <div class="a-title">${a.title}</div>
-      <div class="a-excerpt">${a.excerpt}</div>
-      <div class="a-read">閱讀全文 →</div>
+      ${isAdmin ? `<div style="position:absolute;top:20px;right:0;display:flex;gap:6px">
+        <button class="btn-edit" onclick="openEditModal(event,${a.id})">✎ 編輯</button>
+        <button class="btn-delete" onclick="deleteArticle(event,${a.id})">✕ 刪除</button>
+      </div>` : ''}
     </div>
   `).join('') : '<p style="color:var(--ink3);padding:24px 0;font-size:14px">此分類尚無文章</p>';
 
@@ -413,9 +471,17 @@ function openArticle(id){
   currentArticleId=id;
   saveData();
 
+  const coverHtml = ''; // 封面圖只顯示於列表，文章內容中請用 [圖片:網址] 插入圖片
   const bodyHtml = a.body.split('\n\n').map(p=>{
     if(p.startsWith('###')) return `<h3>${p.replace(/^###\s*/,'')}</h3>`;
-    return `<p>${p}</p>`;
+    // Handle [圖片:url] inline image tags
+    if(p.startsWith('[圖片:')){
+      const url = p.match(/\[圖片:(.*?)\]/);
+      if(url) return `<img src="${url[1]}" alt="圖片" style="width:100%;border-radius:4px;margin:8px 0;display:block">`;
+    }
+    // Handle inline [圖片:url] within paragraphs
+    const withImgs = p.replace(/\[圖片:(.*?)\]/g, (_,u)=>`<img src="${u}" alt="圖片" style="width:100%;border-radius:4px;margin:12px 0;display:block">`);
+    return `<p>${withImgs}</p>`;
   }).join('');
 
   const commentsHtml = a.comments.map((c,i)=>`
@@ -445,8 +511,9 @@ function openArticle(id){
       <span>◎ 瀏覽 ${a.views} 次</span>
       <span class="sep">|</span>
       <span>💬 ${a.comments.length} 則留言</span>
+      ${isAdmin ? `<span class="sep">|</span><button class="btn-edit" style="font-size:12px;padding:3px 10px" onclick="openEditModal(null,${a.id})">✎ 編輯此文章</button>` : ''}
     </div>
-    <div class="ad-body">${bodyHtml}</div>
+    <div class="ad-body">${coverHtml}${bodyHtml}</div>
     <div class="comments-section">
       <h3>留言與討論（${a.comments.length} 則）</h3>
       <div id="comments-container">
@@ -543,19 +610,72 @@ function publishArticle(){
   const excerpt = document.getElementById('new-excerpt').value.trim();
   const body = document.getElementById('new-body').value.trim();
   if(!title||!body){ showToast('請填寫標題與內容'); return; }
+  const cover = document.getElementById('new-cover').value.trim();
   const newId = Math.max(0,...articles.map(a=>a.id))+1;
-  articles.unshift({id:newId, title, cat, date:today(), excerpt:excerpt||title, body, views:0, comments:[]});
+  articles.unshift({id:newId, title, cat, date:today(), excerpt:excerpt||title, body, cover, views:0, comments:[]});
   saveData();
   closeModal();
   showToast('文章已發佈成功！');
   document.getElementById('new-title').value='';
   document.getElementById('new-excerpt').value='';
   document.getElementById('new-body').value='';
+  document.getElementById('new-cover').value='';
+  render();
+}
+
+function openEditModal(e, id){
+  if(e) e.stopPropagation();
+  const a = articles.find(x=>x.id===id);
+  if(!a) return;
+  document.getElementById('edit-title').value = a.title;
+  document.getElementById('edit-cat').value = a.cat;
+  document.getElementById('edit-excerpt').value = a.excerpt||'';
+  document.getElementById('edit-date').value = a.date||today();
+  document.getElementById('edit-body').value = a.body;
+  document.getElementById('edit-cover').value = a.cover||'';
+  document.getElementById('edit-modal').dataset.editId = id;
+  document.getElementById('edit-modal').classList.add('show');
+}
+
+function closeEditModal(){
+  document.getElementById('edit-modal').classList.remove('show');
+}
+
+function saveEdit(){
+  const id = parseInt(document.getElementById('edit-modal').dataset.editId);
+  const a = articles.find(x=>x.id===id);
+  if(!a) return;
+  const title = document.getElementById('edit-title').value.trim();
+  const body = document.getElementById('edit-body').value.trim();
+  if(!title||!body){ showToast('請填寫標題與內容'); return; }
+  a.title = title;
+  a.cat = document.getElementById('edit-cat').value;
+  a.excerpt = document.getElementById('edit-excerpt').value.trim() || title;
+  a.date = document.getElementById('edit-date').value || today();
+  a.body = body;
+  a.cover = document.getElementById('edit-cover').value.trim();
+  saveData();
+  closeEditModal();
+  showToast('文章已更新！');
+  if(currentArticleId===id) openArticle(id);
+  else render();
+}
+
+function deleteArticle(e, id){
+  e.stopPropagation();
+  if(!confirm('確定要刪除這篇文章？此動作無法復原。')) return;
+  articles = articles.filter(a=>a.id!==id);
+  saveData();
+  showToast('文章已刪除');
   render();
 }
 
 // ===== Utils =====
-function today(){ return new Date().toISOString().slice(0,10); }
+function today(){
+  const d = new Date();
+  const tw = new Date(d.getTime() + 8*60*60*1000);
+  return tw.toISOString().slice(0,10);
+}
 
 function showToast(msg){
   const t = document.getElementById('toast');
