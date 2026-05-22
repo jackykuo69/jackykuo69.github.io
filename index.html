@@ -58,6 +58,13 @@
     }
     showLoading(false);
     render();
+    // Handle URL parameter after articles loaded
+    const params = new URLSearchParams(window.location.search);
+    const articleId = params.get('id');
+    if (articleId) {
+      const a = articles.find(x => x.id === articleId);
+      if (a) window._openArticle(a.id);
+    }
   }
 
   async function addArticle(data) {
@@ -202,6 +209,8 @@
         <span class="sep">|</span>
         <span>💬 ${comments.length} 則留言</span>
         ${isAdmin ? `<span class="sep">|</span><button class="btn-edit" style="font-size:12px;padding:3px 10px" onclick="window._openEditModal(null,'${id}')">✎ 編輯此文章</button>` : ''}
+      <span class="sep">|</span>
+      <button class="btn-share" onclick="window._shareArticle('${id}')">🔗 複製分享連結</button>
       </div>
       <div class="ad-body">${bodyHtml}</div>
       <div class="comments-section">
@@ -367,6 +376,22 @@
     render();
   };
 
+  // ===== Share =====
+  window._shareArticle = function(id) {
+    const url = `https://jackykuo69.github.io?id=${id}`;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => showToast('分享連結已複製！貼到臉書或 LINE 即可分享'));
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('分享連結已複製！貼到臉書或 LINE 即可分享');
+    }
+  };
+
   // ===== Utils =====
   function today() {
     const d = new Date();
@@ -508,6 +533,8 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
 .admin-bar.show{display:flex}
 .btn-logout{background:none;border:1px solid var(--accent2);color:var(--accent);padding:3px 10px;font-size:11px;cursor:pointer;border-radius:2px;font-family:inherit}
 
+.btn-share{background:transparent;border:1px solid var(--line);color:var(--ink3);padding:3px 10px;font-size:12px;cursor:pointer;border-radius:2px;font-family:inherit;transition:all .2s}
+.btn-share:hover{border-color:var(--accent2);color:var(--accent)}
 .toast{position:fixed;bottom:24px;right:24px;background:var(--ink);color:#fff;padding:12px 20px;border-radius:4px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:999;max-width:280px}
 .toast.show{opacity:1}
 
