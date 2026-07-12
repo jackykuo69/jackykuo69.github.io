@@ -49,6 +49,8 @@
   let currentCat = '全部';
   let currentArticleId = null;
   let isAdmin = false;
+  let currentPage = 1;
+  const ARTICLES_PER_PAGE = 8;
 
   // ===== Firebase 操作 =====
   async function loadArticles() {
@@ -113,10 +115,15 @@
     ['sidebar-cats', 'sidebar-cats2'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = catHtml; });
 
     const filtered = currentCat === '全部' ? articles : articles.filter(a => a.cat === currentCat);
-    document.getElementById('articles-list').innerHTML = filtered.length ? filtered.map(a => `
+    const totalPages = Math.max(1, Math.ceil(filtered.length / ARTICLES_PER_PAGE));
+    if (currentPage > totalPages) currentPage = totalPages;
+    const pageStart = (currentPage - 1) * ARTICLES_PER_PAGE;
+    const pageItems = filtered.slice(pageStart, pageStart + ARTICLES_PER_PAGE);
+
+    document.getElementById('articles-list').innerHTML = pageItems.length ? pageItems.map(a => `
       <div class="article-card" style="position:relative">
         <div onclick="window._openArticle('${a.id}')">
-          ${a.cover ? `<img src="${a.cover}" alt="${a.title}" style="width:100%;max-height:200px;object-fit:contain;border-radius:2px;margin-bottom:14px;display:block;background:var(--paper2)">` : ''}
+          ${a.cover ? `<img src="${a.cover}" alt="${a.title}" loading="lazy" style="width:100%;max-height:200px;object-fit:contain;border-radius:2px;margin-bottom:14px;display:block;background:var(--paper2)">` : ''}
           <div class="a-meta">
             <span class="a-cat">${a.cat}</span>
             <span class="a-date">📅 ${a.date}</span>
@@ -132,6 +139,12 @@
         </div>` : ''}
       </div>
     `).join('') : '<p style="color:var(--ink3);padding:24px 0;font-size:14px">此分類尚無文章</p>';
+
+    document.getElementById('pagination').innerHTML = totalPages > 1 ? `
+      <button class="page-btn" ${currentPage === 1 ? 'disabled' : ''} onclick="window._goPage(${currentPage - 1})">← 上一頁</button>
+      <span class="page-info">第 ${currentPage} / ${totalPages} 頁</span>
+      <button class="page-btn" ${currentPage === totalPages ? 'disabled' : ''} onclick="window._goPage(${currentPage + 1})">下一頁 →</button>
+    ` : '';
 
     const recent = [...articles].slice(0, 4);
     document.getElementById('recent-list').innerHTML = recent.map(a => `
@@ -151,7 +164,14 @@
   // ===== Navigation =====
   window._setCat = function(cat) {
     currentCat = cat;
+    currentPage = 1;
     showHome();
+  };
+
+  window._goPage = function(p) {
+    currentPage = p;
+    render();
+    document.querySelector('.section-title').scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   function showHome() {
@@ -481,6 +501,12 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
 .a-excerpt{font-size:14px;color:var(--ink2);line-height:1.8;margin-bottom:12px}
 .a-read{font-size:12px;color:var(--accent);opacity:0;transition:opacity .2s;letter-spacing:1px}
 
+.pagination{display:flex;align-items:center;justify-content:center;gap:16px;padding:32px 0 8px}
+.page-btn{background:transparent;border:1px solid var(--line);color:var(--ink2);padding:8px 18px;border-radius:2px;font-family:inherit;font-size:13px;cursor:pointer;transition:all .15s;letter-spacing:.5px}
+.page-btn:hover:not(:disabled){border-color:var(--accent2);color:var(--accent)}
+.page-btn:disabled{opacity:.35;cursor:default}
+.page-info{font-size:12px;color:var(--ink3);letter-spacing:1px}
+
 .sidebar-box{background:var(--paper2);border:1px solid var(--line);border-radius:2px;padding:20px;margin-bottom:24px}
 .sidebar-box h3{font-family:'Noto Serif TC',serif;font-size:14px;color:var(--ink);margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
 .cat-list{list-style:none}
@@ -603,6 +629,7 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
     <p class="section-title">文章列表</p>
     <div class="cat-tabs" id="cat-tabs"></div>
     <div class="articles-list" id="articles-list"></div>
+    <div class="pagination" id="pagination"></div>
   </div>
   <aside>
     <div class="sidebar-box about-box">
