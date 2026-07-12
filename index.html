@@ -300,6 +300,17 @@
     window._openArticle(id);
   };
 
+  // ===== Image Preview =====
+  window._previewCover = function(inputId, previewId) {
+    const url = document.getElementById(inputId).value.trim();
+    const preview = document.getElementById(previewId);
+    if (!url) { preview.innerHTML = ''; return; }
+    preview.innerHTML = `
+      <img src="${url}" style="max-width:180px;max-height:120px;border-radius:2px;border:1px solid var(--line);display:block;object-fit:cover" onload="this.nextElementSibling.style.display='none'" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+      <p style="display:none;color:#c55;font-size:11px;margin-top:4px">⚠ 圖片網址無法載入，請確認連結是否正確（圖片是否已上傳、網址是否貼對）</p>
+    `;
+  };
+
   // ===== Admin (Firebase Authentication) =====
   window._checkAdmin = function() {
     if (isAdmin) { openModal(); return; }
@@ -358,6 +369,7 @@
     window._closeModal();
     showToast('文章已發佈成功！');
     ['new-title','new-excerpt','new-body','new-cover'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('new-cover-preview').innerHTML = '';
     render();
   };
 
@@ -372,6 +384,7 @@
     document.getElementById('edit-date').value = a.date || today();
     document.getElementById('edit-body').value = a.body;
     document.getElementById('edit-cover').value = a.cover || '';
+    window._previewCover('edit-cover', 'edit-cover-preview');
     document.getElementById('edit-modal').dataset.editId = id;
     document.getElementById('edit-modal').classList.add('show');
   };
@@ -683,8 +696,9 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
       <textarea id="new-body" style="min-height:220px" placeholder="請輸入文章內容。&#10;小標題：### 標題&#10;插入圖片：[圖片:網址]"></textarea>
     </div>
     <div class="form-group"><label>封面圖片網址（選填）</label>
-      <input type="text" id="new-cover" placeholder="https://jackykuo69.github.io/image.jpg">
-      <p style="font-size:11px;color:var(--ink3);margin-top:5px">封面圖只顯示在列表；文章內圖片請用 [圖片:網址]</p>
+      <input type="text" id="new-cover" placeholder="https://jackykuo69.github.io/images/2026-07/檔名.jpg" oninput="window._previewCover('new-cover','new-cover-preview')">
+      <p style="font-size:11px;color:var(--ink3);margin-top:5px">封面圖只顯示在列表；文章內圖片請用 [圖片:網址]。建議先把圖片上傳到 GitHub 的 images 資料夾，再把網址貼在這裡。</p>
+      <div id="new-cover-preview" style="margin-top:10px"></div>
     </div>
     <div class="btn-row">
       <button class="btn-cancel" onclick="window._closeModal()">取消</button>
@@ -710,8 +724,9 @@ nav{background:var(--ink);padding:0 2rem;display:flex;align-items:center;justify
       <textarea id="edit-body" style="min-height:220px"></textarea>
     </div>
     <div class="form-group"><label>封面圖片網址（選填）</label>
-      <input type="text" id="edit-cover" placeholder="https://jackykuo69.github.io/image.jpg">
-      <p style="font-size:11px;color:var(--ink3);margin-top:5px">封面圖只顯示在列表；文章內圖片請用 [圖片:網址]</p>
+      <input type="text" id="edit-cover" placeholder="https://jackykuo69.github.io/images/2026-07/檔名.jpg" oninput="window._previewCover('edit-cover','edit-cover-preview')">
+      <p style="font-size:11px;color:var(--ink3);margin-top:5px">封面圖只顯示在列表；文章內圖片請用 [圖片:網址]。建議先把圖片上傳到 GitHub 的 images 資料夾，再把網址貼在這裡。</p>
+      <div id="edit-cover-preview" style="margin-top:10px"></div>
     </div>
     <div class="btn-row">
       <button class="btn-cancel" onclick="window._closeEditModal()">取消</button>
