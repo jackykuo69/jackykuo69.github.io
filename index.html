@@ -19,6 +19,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getFirestore, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, increment, orderBy, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
   // ========== 請將下方換成您的 Firebase 設定 ==========
   const firebaseConfig = {
@@ -33,9 +34,10 @@
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+  const auth = getAuth(app);
 
   // ========== 設定區 ==========
-  const ADMIN_PASSWORD = '1J1a9c4k5y8@';
+  const ADMIN_EMAIL = 'jackykuo69@gmail.com';
   const AUTHOR_NAME = 'Jacky';
   // ============================
 
@@ -289,9 +291,10 @@
     setTimeout(() => document.getElementById('admin-pwd').focus(), 100);
   };
 
-  window._doLogin = function() {
+  window._doLogin = async function() {
     const pwd = document.getElementById('admin-pwd').value;
-    if (pwd === ADMIN_PASSWORD) {
+    try {
+      await signInWithEmailAndPassword(auth, ADMIN_EMAIL, pwd);
       isAdmin = true;
       document.getElementById('login-modal').classList.remove('show');
       document.getElementById('admin-pwd').value = '';
@@ -300,13 +303,15 @@
       if (pendingAdminAction === 'publish') openModal();
       if (currentArticleId) window._openArticle(currentArticleId);
       else render();
-    } else {
+    } catch (e) {
+      console.error(e);
       showToast('密碼錯誤，請再試一次');
       document.getElementById('admin-pwd').value = '';
     }
   };
 
-  window._logout = function() {
+  window._logout = async function() {
+    await signOut(auth);
     isAdmin = false;
     document.getElementById('admin-bar').classList.remove('show');
     showToast('已登出管理員模式');
@@ -421,6 +426,11 @@
   }
 
   // ===== Init =====
+  onAuthStateChanged(auth, (user) => {
+    isAdmin = !!user;
+    document.getElementById('admin-bar').classList.toggle('show', isAdmin);
+    render();
+  });
   loadArticles();
 </script>
 
